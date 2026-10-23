@@ -2404,6 +2404,194 @@ function updateStageTwoBehaviors(dt){
 const updateBeforeStageTwoRoster=update;
 update=function(dt){updateBeforeStageTwoRoster(dt);updateStageTwoBehaviors(dt);};
 
+// ===== Polimento visual dedicado ao PC: Mar de Nebulosas =====
+// O cenário do estágio 2 usa somente cor e luz difusa: sem grade, listras ou objetos de fundo.
+const drawBackgroundBeforeNebulaPolish = drawBackground;
+drawBackground = function(camX, camY) {
+  if (game.stage !== 2) return drawBackgroundBeforeNebulaPolish(camX, camY);
+  const w = W, h = H;
+  const base = ctx.createLinearGradient(0, 0, w, h);
+  base.addColorStop(0, '#06111f');
+  base.addColorStop(.26, '#091a30');
+  base.addColorStop(.52, '#0b2340');
+  base.addColorStop(.76, '#101b38');
+  base.addColorStop(1, '#100e29');
+  ctx.fillStyle = base;
+  ctx.fillRect(0, 0, w, h);
+  // Degradês amplos e muito suaves criam profundidade sem padrões geométricos.
+  const washA = ctx.createRadialGradient(w*.28, h*.3, 0, w*.28, h*.3, Math.max(w,h)*.72);
+  washA.addColorStop(0, 'rgba(29,126,172,.20)');
+  washA.addColorStop(.46, 'rgba(22,86,137,.09)');
+  washA.addColorStop(1, 'rgba(3,10,24,0)');
+  ctx.fillStyle = washA;
+  ctx.fillRect(0,0,w,h);
+  const washB = ctx.createRadialGradient(w*.78, h*.72, 0, w*.78, h*.72, Math.max(w,h)*.62);
+  washB.addColorStop(0, 'rgba(112,68,174,.15)');
+  washB.addColorStop(.53, 'rgba(63,53,126,.065)');
+  washB.addColorStop(1, 'rgba(4,7,21,0)');
+  ctx.fillStyle = washB;
+  ctx.fillRect(0,0,w,h);
+};
+
+// Preserve each existing species silhouette, then add anatomical layers and luminous
+// material detail. On PC the base art is slightly enlarged; mobile keeps its current cost.
+const drawStageTwoEnemyBasePolished = drawStageTwoEnemy;
+drawStageTwoEnemy = function(e, sx, sy) {
+  if (!e) return;
+  const isPC = !MOBILE_OPTIMIZATIONS;
+  const r = Math.max(8, Number(e.r) || 10);
+  const t = game.time || 0;
+  const c = e.hitFlash > 0 ? '#ffffff' : (e.color || '#75dcec');
+  const deep = '#071321';
+  const pale = '#edfcff';
+  // PC can afford a larger, more legible sprite without changing hitboxes or gameplay.
+  ctx.save();
+  if (isPC) {
+    ctx.translate(sx, sy);
+    ctx.scale(1.13, 1.13);
+    ctx.translate(-sx, -sy);
+  }
+  drawStageTwoEnemyBasePolished(e, sx, sy);
+  ctx.restore();
+
+  ctx.save();
+  ctx.translate(sx, sy);
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = c;
+  ctx.fillStyle = c;
+  ctx.lineWidth = isPC ? 1.45 : 1.05;
+  ctx.shadowColor = c;
+  ctx.shadowBlur = (isPC && !game.reduceFx) ? 5 : 0;
+
+  const trace = (pts, close=false, fill=false) => {
+    ctx.beginPath();
+    pts.forEach((p,i)=> i ? ctx.lineTo(p[0],p[1]) : ctx.moveTo(p[0],p[1]));
+    if (close) ctx.closePath();
+    if (fill) ctx.fill();
+    ctx.stroke();
+  };
+  const facet = (x,y,rx,ry,rot=0,fill='#10213a') => {
+    ctx.save(); ctx.translate(x,y); ctx.rotate(rot);
+    ctx.fillStyle=fill; ctx.beginPath(); ctx.moveTo(0,-ry); ctx.lineTo(rx,0);
+    ctx.lineTo(0,ry); ctx.lineTo(-rx,0); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle=pale; ctx.globalAlpha=.9; ctx.lineWidth=.8; ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0,-ry*.68); ctx.lineTo(0,ry*.65); ctx.stroke();
+    ctx.restore(); ctx.globalAlpha=1; ctx.strokeStyle=c; ctx.lineWidth=isPC?1.45:1.05;
+  };
+  const eye = (x,y,rr=1.6) => {
+    ctx.fillStyle=pale; ctx.beginPath(); ctx.arc(x,y,rr*1.9,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle=c; ctx.beginPath(); ctx.arc(x,y,rr,0,Math.PI*2); ctx.fill();
+  };
+  const ring = (rx,ry,rot,col=pale,width=.9,start=0,end=Math.PI*2) => {
+    ctx.save();ctx.rotate(rot);ctx.strokeStyle=col;ctx.lineWidth=width;
+    ctx.beginPath();ctx.ellipse(0,0,rx,ry,0,start,end);ctx.stroke();ctx.restore();
+  };
+
+  switch(e.type) {
+    case 'fracture': {
+      ctx.rotate(-t*.22);
+      for(let k=0;k<6;k++){
+        const a=k*Math.PI/3, inner=r*.43, outer=r*(1.12+(k%2)*.28);
+        ctx.save();ctx.rotate(a);ctx.strokeStyle=k%2?pale:c;ctx.lineWidth=k%2?1.05:1.6;
+        trace([[0,-inner],[r*.17,-outer*.68],[r*.05,-outer],[ -r*.2,-outer*.54 ]],true,false);ctx.restore();
+      }
+      ring(r*1.43,r*.53,t*.24,'#d7d4ff',.9,.22,Math.PI*1.56);
+      facet(-r*.7,-r*.4,r*.15,r*.28,t*.4,'#29345c');facet(r*.64,r*.45,r*.13,r*.24,-t*.35,'#1b3550');
+      break;
+    }
+    case 'echofox': {
+      // Distinct split tails, angular ears, face mask and cheek markings.
+      ctx.strokeStyle='#d8caff';ctx.lineWidth=2;
+      for(let side of [-1,1]){
+        ctx.beginPath();ctx.moveTo(side*r*.2,r*.18);
+        ctx.bezierCurveTo(side*r*.72,-r*.35,side*r*1.3,-r*1.25,side*r*1.02,-r*1.48);
+        ctx.bezierCurveTo(side*r*1.65,-r*.82,side*r*1.5,r*.18,side*r*.6,r*.84);ctx.stroke();
+        ctx.strokeStyle=c;ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(side*r*.42,r*.34);ctx.quadraticCurveTo(side*r*.93,r*.1,side*r*1.13,-r*.6);ctx.stroke();
+        ctx.strokeStyle='#d8caff';ctx.lineWidth=2;
+        trace([[side*r*.25,-r*.28],[side*r*.5,-r*1.05],[side*r*.73,-r*.38]],true,false);
+        eye(side*r*.19,-r*.04,1.25);
+      }
+      ctx.fillStyle='#101329';trace([[-r*.4,-r*.15],[0,-r*.38],[r*.4,-r*.15],[r*.24,r*.24],[0,r*.36],[-r*.24,r*.24]],true,true);
+      ctx.strokeStyle=pale;ctx.lineWidth=.8;trace([[-r*.28,r*.02],[0,r*.14],[r*.28,r*.02]],false,false);
+      break;
+    }
+    case 'lensing': {
+      // A black gravitational well with bright accretion ribbons and lensing nodes.
+      ctx.fillStyle='#020712';ctx.beginPath();ctx.arc(0,0,r*.77,0,Math.PI*2);ctx.fill();
+      ring(r*1.62,r*.42,t*.52,'#b2faff',1.6);
+      ring(r*1.38,r*.26,-t*.73,'#a78bfa',1.15,.2,Math.PI*1.78);
+      ring(r*1.03,r*.74,t*.23,pale,.75,.55,Math.PI*1.48);
+      ctx.strokeStyle='#ffffff';ctx.lineWidth=1.1;
+      ctx.beginPath();ctx.moveTo(-r*1.22,-r*.32);ctx.quadraticCurveTo(-r*.45,-r*.08,0,0);ctx.quadraticCurveTo(r*.5,r*.08,r*1.28,r*.34);ctx.stroke();
+      eye(-r*.56,-r*.22,1.2);eye(r*.63,r*.25,1.2);
+      break;
+    }
+    case 'voidjelly': {
+      // Bell crown, ribbed mantle and independent tendril tips.
+      ctx.fillStyle='#0a1c31';ctx.beginPath();ctx.moveTo(-r*.82,r*.05);
+      ctx.quadraticCurveTo(-r*1.0,-r*.95,0,-r*1.02);ctx.quadraticCurveTo(r,-r*.95,r*.82,r*.05);
+      ctx.quadraticCurveTo(r*.52,r*.36,0,r*.27);ctx.quadraticCurveTo(-r*.52,r*.36,-r*.82,r*.05);ctx.fill();ctx.strokeStyle=pale;ctx.lineWidth=.85;ctx.stroke();
+      for(let k=-2;k<=2;k++){ctx.beginPath();ctx.moveTo(k*r*.24,-r*.76);ctx.quadraticCurveTo(k*r*.34,-r*.34,k*r*.26,r*.03);ctx.strokeStyle=k===0?pale:c;ctx.lineWidth=k===0?1.4:.8;ctx.stroke();}
+      for(let k=0;k<8;k++){const a=k*Math.PI/4+t*.06,x=Math.cos(a)*r*.7,y=r*.32+Math.sin(a)*r*.18;ctx.beginPath();ctx.moveTo(x,y);ctx.bezierCurveTo(x+Math.cos(a)*r*.5,y+r*.4,x+Math.cos(a+.35)*r*.72,y+r*.68,x+Math.cos(a+.22)*r*1.18,y+r*(.68+.08*Math.sin(t*2+k)));ctx.strokeStyle=k%2?'#bbadff':'#8ef4f6';ctx.lineWidth=k%3===0?1.6:.9;ctx.stroke();eye(x+Math.cos(a)*r*.92,y+r*.48,1.0);}
+      break;
+    }
+    case 'supernova': {
+      // Layered corona, molten inner ring and four long stellar flares.
+      ctx.rotate(t*.18);
+      for(let k=0;k<16;k++){const a=k*Math.PI/8,inner=r*.69,outer=r*(1.14+(k%2)*.25);ctx.save();ctx.rotate(a);ctx.fillStyle=k%2?'#ffd0ec':'#ffb7d8';trace([[0,-inner],[r*.13,-outer*.72],[0,-outer],[-r*.13,-outer*.72]],true,true);ctx.restore();}
+      ring(r*.83,r*.83,-t*.62,'#fff5fa',1.3);
+      ring(r*.56,r*.56,t*.8,'#ffc3ea',.8,.18,Math.PI*1.72);
+      const sun=ctx.createRadialGradient(0,0,1,0,0,r*.43);sun.addColorStop(0,'#ffffff');sun.addColorStop(.26,'#fff2f9');sun.addColorStop(.68,'#ff96d7');sun.addColorStop(1,'#7f376f');ctx.fillStyle=sun;ctx.beginPath();ctx.arc(0,0,r*.43,0,Math.PI*2);ctx.fill();
+      break;
+    }
+    case 'moonwake': {
+      // Crescent moon, crater etchings and two orbiting satellite fragments.
+      ctx.fillStyle='#0b2138';ctx.beginPath();ctx.arc(0,0,r*.89,-Math.PI*.77,Math.PI*.77);ctx.quadraticCurveTo(r*.12,r*.38,r*.12,0);ctx.quadraticCurveTo(r*.1,-r*.35,0,-r*.89);ctx.fill();ctx.strokeStyle='#c8f6ff';ctx.lineWidth=1.2;ctx.stroke();
+      ring(r*1.58,r*.46,t*.18,'#8fe8ff',.9,.12,Math.PI*1.78);
+      for(const [x,y,rr] of [[-r*.36,-r*.25,r*.1],[r*.18,r*.21,r*.13],[-r*.05,r*.48,r*.065]]){ctx.strokeStyle='#9ed8f3';ctx.lineWidth=.7;ctx.beginPath();ctx.arc(x,y,rr,0,Math.PI*2);ctx.stroke();}
+      facet(Math.cos(t*.7)*r*1.42,Math.sin(t*.7)*r*.52,r*.13,r*.2,t*.45,'#a9f1ff');
+      facet(Math.cos(-t*.48+2)*r*1.28,Math.sin(-t*.48+2)*r*.42,r*.09,r*.15,-t*.5,'#b8a6ff');
+      break;
+    }
+    case 'tidalwisp': {
+      // Sweeping currents layered like water ribbons instead of a plain orb.
+      for(let k=0;k<5;k++){ctx.save();ctx.rotate(t*(k%2?-.18:.15)+k*.44);ctx.beginPath();ctx.ellipse(0,0,r*(.68+k*.22),r*(.25+k*.105),0,Math.PI*.12,Math.PI*1.82);ctx.strokeStyle=['#edffff','#79e9f0','#96cfff','#bba7ff','#70c9eb'][k];ctx.lineWidth=k===0?1.4:.8;ctx.stroke();ctx.restore();}
+      ctx.fillStyle='#062033';ctx.beginPath();ctx.moveTo(-r*.42,0);ctx.quadraticCurveTo(-r*.12,-r*.56,r*.28,-r*.2);ctx.quadraticCurveTo(r*.63,r*.08,r*.25,r*.35);ctx.quadraticCurveTo(-r*.12,r*.6,-r*.42,0);ctx.fill();ctx.strokeStyle=pale;ctx.stroke();
+      eye(0,0,1.7);
+      for(let k=0;k<4;k++){const a=t*.35+k*Math.PI/2,x=Math.cos(a)*r*1.12,y=Math.sin(a)*r*.58;ctx.fillStyle=k%2?'#c7b7ff':'#a1f7f3';ctx.beginPath();ctx.arc(x,y,1.2+(k%2)*.55,0,Math.PI*2);ctx.fill();}
+      break;
+    }
+    case 'abyssray': {
+      // Manta-like body with visible fins, gill ribs, eye pair and long tail.
+      ctx.fillStyle='#08182c';trace([[r*1.12,0],[r*.5,-r*.24],[r*.08,-r*.82],[-r*.18,-r*.49],[-r*.82,-r*.92],[-r*.55,-r*.2],[-r*1.05,0],[-r*.55,r*.2],[-r*.82,r*.92],[-r*.18,r*.49],[r*.08,r*.82],[r*.5,r*.24]],true,true);ctx.strokeStyle='#b9f2ff';ctx.lineWidth=1;ctx.stroke();
+      for(let k=-2;k<=2;k++){ctx.beginPath();ctx.moveTo(r*.52,-r*.08);ctx.quadraticCurveTo(-r*.05,k*r*.11,-r*.55,k*r*.24);ctx.strokeStyle=k===0?pale:c;ctx.lineWidth=k===0?1.25:.7;ctx.stroke();}
+      eye(r*.35,-r*.11,1.0);eye(r*.35,r*.11,1.0);
+      ctx.strokeStyle='#9dcfff';ctx.lineWidth=1.15;ctx.beginPath();ctx.moveTo(-r*.93,0);ctx.quadraticCurveTo(-r*1.45,r*.2,-r*1.8,r*.02);ctx.stroke();
+      facet(-r*.72,-r*.47,r*.11,r*.19,-.3,'#203c5b');facet(-r*.72,r*.47,r*.11,r*.19,.3,'#203c5b');
+      break;
+    }
+    case 'prismcurl': {
+      // A segmented six-crystal shell with alternating bright and dark facets.
+      ctx.rotate(-t*.12);
+      for(let k=0;k<6;k++){const a=k*Math.PI/3;ctx.save();ctx.rotate(a);ctx.fillStyle=k%2?'#554a89':'#273e67';trace([[0,-r*.64],[r*.28,-r*1.24],[r*.16,-r*.55],[0,-r*.37],[-r*.18,-r*.55],[-r*.3,-r*1.04]],true,true);ctx.strokeStyle=pale;ctx.lineWidth=.85;ctx.stroke();ctx.beginPath();ctx.moveTo(0,-r*.64);ctx.lineTo(r*.16,-r*.55);ctx.stroke();ctx.restore();}
+      facet(0,0,r*.36,r*.58,t*.34,'#182943');
+      ring(r*1.45,r*.45,t*.25,'#b6fff7',.85,.3,Math.PI*1.58);
+      ctx.strokeStyle='#fff';ctx.lineWidth=.85;ctx.beginPath();ctx.moveTo(-r*.43,0);ctx.lineTo(r*.43,0);ctx.moveTo(0,-r*.43);ctx.lineTo(0,r*.43);ctx.stroke();
+      break;
+    }
+    case 'nebulaweaver': {
+      // Four long filaments form a living web around a faceted central body.
+      for(let k=0;k<8;k++){const a=t*(k%2?-.045:.06)+k*Math.PI/4;ctx.save();ctx.rotate(a);ctx.strokeStyle=k%2?'#cbbdff':'#91f6f3';ctx.lineWidth=k%2?1.1:.8;ctx.beginPath();ctx.moveTo(0,-r*.4);ctx.bezierCurveTo(r*.6,-r*.68,r*1.3,-r*.85,r*1.56,-r*1.28);ctx.bezierCurveTo(r*1.05,-r*.72,r*.8,-r*.2,r*.25,r*.1);ctx.stroke();ctx.beginPath();ctx.moveTo(r*.45,-r*.42);ctx.quadraticCurveTo(r*.85,-r*.5,r*1.18,-r*.77);ctx.stroke();ctx.fillStyle=pale;ctx.beginPath();ctx.arc(r*1.56,-r*1.28,1.35,0,Math.PI*2);ctx.fill();ctx.restore();}
+      ctx.fillStyle='#09172b';ctx.beginPath();ctx.arc(0,0,r*.55,0,Math.PI*2);ctx.fill();ctx.strokeStyle=pale;ctx.lineWidth=1.2;ctx.stroke();
+      for(let k=0;k<6;k++){const a=t*.12+k*Math.PI/3;facet(Math.cos(a)*r*.33,Math.sin(a)*r*.33,r*.1,r*.17,a,'#28405e');}
+      eye(0,0,1.6);
+      break;
+    }
+  }
+  ctx.restore();
+};
+
 function menuLoop(){if(game.mode==='menu'){drawMenuBg();frameId=requestAnimationFrame(menuLoop)}}drawMenuBg();frameId=requestAnimationFrame(menuLoop);
 })();
 </script>
