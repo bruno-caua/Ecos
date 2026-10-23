@@ -788,30 +788,50 @@ function addXP(value){if(value<=0)return;player.xp+=value;let leveled=0;while(pl
 function pickUpgradesFor(target=player){
  const activeCount=upgradeDefs.filter(u=>ACTIVE_SKILLS.has(u.id)&&getUpgradeLevel(u,target)>0).length;
  const banned=new Set(Array.isArray(target.bannedUpgrades)?target.bannedUpgrades:[]);
- const eligible=upgradeDefs.filter(u=>!banned.has(u.id)&&getUpgradeLevel(u,target)<(upgradeMaxLevels[u.id]||99)&&(!ACTIVE_SKILLS.has(u.id)||getUpgradeLevel(u.id,target)>0||activeCount<6)&&((target.astralShot||0)>0||!['haste','double'].includes(u.id)));
+ const eligible=upgradeDefs.filter(u=>!banned.has(u.id)&&getUpgradeLevel(u,target)<(upgradeMaxLevels[u.id]||99)&&(!ACTIVE_SKILLS.has(u.id)||getUpgradeLevel(u,target)>0||activeCount<6)&&((target.astralShot||0)>0||!['haste','double'].includes(u.id)));
  const recent=Array.isArray(target.recentOffers)?target.recentOffers:[];
- let fresh=eligible.filter(u=>!recent.includes(u.id));if(fresh.length<3)fresh=eligible.slice();
- const take=(list)=>{if(!list.length)return null;const nonRecent=list.filter(u=>!recent.includes(u.id));const pool=nonRecent.length?nonRecent:list;const index=Math.floor(Math.random()*pool.length);const chosen=pool[index];const original=list.indexOf(chosen);if(original>=0)list.splice(original,1);return chosen;};
- const newActives=fresh.filter(u=>ACTIVE_SKILLS.has(u.id)&&getUpgradeLevel(u,target)===0&&activeCount<6);
- const ownedActives=fresh.filter(u=>ACTIVE_SKILLS.has(u.id)&&getUpgradeLevel(u,target)>0);
- const passives=fresh.filter(u=>!ACTIVE_SKILLS.has(u.id));
  const chosen=[];
- // As habilidades novas são sorteadas: nenhuma delas, inclusive Tiro Astral, recebe prioridade fixa.
- // Se houver espaço no arsenal, a primeira opção prioriza uma habilidade nova escolhida aleatoriamente.
- if(newActives.length&&activeCount<6){const first=take(newActives);if(first)chosen.push(first);}
- while(chosen.length<3){
-   let item=null;const roll=Math.random();
-   // Early runs discover more distinct spells; full builds pivot toward evolving owned spells and permanent buffs.
-   if(newActives.length&&activeCount<4&&roll<.24)item=take(newActives);
-   else if(ownedActives.length&&roll<.66)item=take(ownedActives);
-   else if(passives.length)item=take(passives);
-   if(!item&&ownedActives.length)item=take(ownedActives);
-   if(!item&&newActives.length&&activeCount<6)item=take(newActives);
-   if(!item)item=take(eligible.filter(u=>!chosen.some(c=>c.id===u.id)));
-   if(!item)break;chosen.push(item);
+ // Keep the build moving: a card may repeat between levels, but the whole offer
+ // must never be made entirely of unrelated passives while owned skills are upgradeable.
+ const unique=list=>list.filter(u=>u&&!chosen.some(c=>c.id===u.id));
+ const take=list=>{
+   let pool=unique(list);if(!pool.length)return null;
+   // Avoid recently shown choices when possible. If the eligible pool is small,
+   // deliberately fall back to it instead of hiding a skill for several levels.
+   const fresh=pool.filter(u=>!recent.includes(u.id));
+   if(fresh.length)pool=fresh;
+   else {
+     const oldest=Math.min(...pool.map(u=>{const i=recent.lastIndexOf(u.id);return i<0?-1:i}));
+     const older=pool.filter(u=>{const i=recent.lastIndexOf(u.id);return (i<0?-1:i)===oldest;});
+     if(older.length)pool=older;
+   }
+   const item=pool[Math.floor(Math.random()*pool.length)];chosen.push(item);return item;
+ };
+ const ownedActives=eligible.filter(u=>ACTIVE_SKILLS.has(u.id)&&getUpgradeLevel(u,target)>0);
+ const newActives=eligible.filter(u=>ACTIVE_SKILLS.has(u.id)&&getUpgradeLevel(u,target)===0&&activeCount<6);
+ const passives=eligible.filter(u=>!ACTIVE_SKILLS.has(u.id));
+ if(activeCount>=6){
+   // Full build: two of three choices are upgrades for skills already owned.
+   // This guarantees consistent build progression without making upgrades too fast.
+   take(ownedActives);take(ownedActives);
+   // Keep one utility/stat choice for variety; if none remain, offer another owned skill.
+   take(passives.length?passives:ownedActives);
+ }else{
+   // Before the six-slot cap, expose a real choice between evolving an owned skill
+   // and discovering a new one; a passive remains the third, slower route.
+   take(ownedActives);
+   take(newActives);
+   take(passives.length?passives:(ownedActives.length?ownedActives:newActives));
  }
+ // Fill any missing slot from whatever legal choices remain, never duplicate a card.
+ const fillPool=()=>unique(eligible).sort((a,b)=>{
+   const ao=ACTIVE_SKILLS.has(a.id)&&getUpgradeLevel(a,target)>0?0:1;
+   const bo=ACTIVE_SKILLS.has(b.id)&&getUpgradeLevel(b,target)>0?0:1;
+   return ao-bo;
+ });
+ while(chosen.length<3){const pool=fillPool();if(!pool.length)break;take(pool);}
  if(!chosen.length){return [{id:'awakening',icon:'✧',name:'Ascensão Absoluta',desc:'Amplifica o arsenal, aumenta a vida máxima e restaura vitalidade.',type:'Lendária',apply:p=>{p.damage*=1.1;p.abilityPower*=1.1;p.maxHp+=8;p.hp=Math.min(p.maxHp,p.hp+8)}}];}
- target.recentOffers=[...recent,...chosen.map(u=>u.id)].slice(-9);
+ target.recentOffers=[...recent,...chosen.map(u=>u.id)].slice(-12);
  return chosen;
 }
 function pickUpgrades(){return pickUpgradesFor(player)}
