@@ -398,6 +398,7 @@ let player,enemies,shots,enemyShots,gems,particles,fields,decor,specialEffects,l
 const MOBILE_ENEMY_CELL_SIZE=128;let mobileEnemyGrid=null;
 function rebuildMobileEnemyGrid(){if(!MOBILE_OPTIMIZATIONS){mobileEnemyGrid=null;return;}const grid=new Map(),size=MOBILE_ENEMY_CELL_SIZE;for(const e of enemies){if(!e||e.dead||e.hp<=0)continue;const gx=Math.floor(e.x/size),gy=Math.floor(e.y/size),key=gx+','+gy;let bucket=grid.get(key);if(!bucket){bucket=[];grid.set(key,bucket);}bucket.push(e);}mobileEnemyGrid=grid;}
 function nearbyEnemiesMobile(x,y,range=90){if(!MOBILE_OPTIMIZATIONS||!mobileEnemyGrid)return enemies;const size=MOBILE_ENEMY_CELL_SIZE,minX=Math.floor((x-range)/size),maxX=Math.floor((x+range)/size),minY=Math.floor((y-range)/size),maxY=Math.floor((y+range)/size);if((maxX-minX+1)*(maxY-minY+1)>Math.max(9,enemies.length*.5))return enemies;const out=[];for(let gx=minX;gx<=maxX;gx++)for(let gy=minY;gy<=maxY;gy++){const bucket=mobileEnemyGrid.get(gx+','+gy);if(bucket)for(const e of bucket)out.push(e);}return out;}
+let coopConnectTimer=null,coopConnectAttemptSeq=0;
 const coop={enabled:false,role:null,peer:null,conn:null,code:'',connected:false,partnerName:'Companheiro',partnerCharacter:'prism',partner:null,partnerUpgradeOffer:[],remoteOfferActive:false,remoteInput:{x:0,y:0,dash:false,ultimate:false,dashSeq:0,ultimateSeq:0},remotePlayer:null,pendingDash:false,pendingUltimate:false,clientDashSeq:0,clientUltimateSeq:0,lastInput:0,lastSnapshot:0,clientLastSnapshot:0,netClient:false,snapshotPrev:null,snapshotCurrent:null,snapshotPrevAt:0,snapshotCurrentAt:0,lastUiUpdate:0,snapshotQueue:[],clientRenderX:null,clientRenderY:null,clientAuthX:null,clientAuthY:null,clientDashTime:0,clientDashCooldown:0,clientDashX:0,clientDashY:-1,clientInputHistory:[],clientInputSeq:0,clientLastAckSeq:0,clientVisualOffsetX:0,clientVisualOffsetY:0};
 let coopEntitySerial=1;
 const characterDefs={
@@ -1517,7 +1518,7 @@ function onCoopData(data){if(!data||typeof data!=='object')return;if(coop.role==
   try{coop.conn.send(response)}catch(e){}
  }
  }else if(data.type==='upgradeChoice'&&coop.partner){const id=String(data.id||'');if(!(coop.partnerUpgradeOffer||[]).includes(id))return;const u=upgradeDefs.find(x=>x.id===id);if(!u)return;u.apply(coop.partner);if(!upgradeField[u.id])coop.partner.upgradeLevels[u.id]=(coop.partner.upgradeLevels[u.id]||0)+1;coop.partner.levelUpQueue=Math.max(0,(coop.partner.levelUpQueue||0)-1);coop.partnerUpgradeOffer=[];spellSfx('upgrade');const syn=buildSynergyToast(coop.partner);try{coop.conn.send({type:'upgradeApplied',name:u.name,synergy:syn||''})}catch(e){}queuePartnerUpgradeOffer()}}else if(coop.role==='client'){if(data.type==='soundEvent'){if(data.soundKind==='spell')spellSfx(String(data.name||'arcane'),true);else if(data.soundKind==='beep')audioBeep(clamp(Number(data.freq)||440,30,2400),clamp(Number(data.duration)||.07,.025,.7),['sine','triangle','sawtooth','square'].includes(data.typeName)?data.typeName:'sine',clamp(Number(data.volume)||.025,.001,.075),true);else if(data.soundKind==='projectile')projectileSfx(Number(data.count)||1,true);else if(data.soundKind==='impact')impactSfx(true);else if(data.soundKind==='xp')xpPickupSfx(Number(data.value)||1,true);}else if(data.type==='lobby'){coop.partnerName=data.hostName||'Jogador 1';coop.partnerCharacter=characterDefs[data.hostCharacter]?data.hostCharacter:'nucleus';coop.localName=data.partnerName||coop.localName;coop.localCharacter=characterDefs[data.partnerCharacter]?data.partnerCharacter:(coop.localCharacter||'prism');$('multiStatus').textContent='Conectado com '+coop.partnerName+'. Aguardando o jogador 1 escolher a fase.';renderLobbyRoster()}else if(data.type==='lobbySelection'){coop.partnerName=String(data.name||coop.partnerName||'Jogador 1').slice(0,18);coop.partnerCharacter=characterDefs[data.character]?data.character:(coop.partnerCharacter||'nucleus');renderLobbyRoster()}else if(data.type==='start'){coop.partnerName=data.hostName||'Jogador 1';coop.partnerCharacter=data.hostCharacter||'nucleus';startGame({stage:normalizeStage(data.stage,1),name:data.guestName||coop.localName,character:data.guestCharacter||coop.localCharacter,startingAbilityId:data.startingAbilityId,networkStart:true});}else if(data.type==='resume'){coop.snapshotQueue=[];coop.snapshotPrev=null;coop.snapshotCurrent=null;coop.snapshotPrevAt=0;coop.snapshotCurrentAt=0;coop.clientRenderX=null;coop.clientRenderY=null;coop.clientAuthX=null;coop.clientAuthY=null;coop.clientInputHistory=[];coop.clientInputSeq=0;coop.clientLastAckSeq=0;coop.clientVisualOffsetX=0;coop.clientVisualOffsetY=0;coop.partnerName=data.hostName||'Jogador 1';coop.partnerCharacter=data.hostCharacter||'nucleus';const hadRun=!!player; if(!hadRun){startGame({stage:data.stage,name:data.guestName||coop.localName,character:data.guestCharacter||coop.localCharacter,startingAbilityId:data.startingAbilityId,networkStart:true});}else{game.stage=normalizeStage(data.stage,game.stage);game.playerName=data.guestName||coop.localName;game.characterId=data.guestCharacter||coop.localCharacter;game.coopActive=true;coop.netClient=true;game.mode='playing';ui.start.classList.add('hidden');ui.setup.classList.add('hidden');ui.multi.classList.add('hidden');ui.upgrade.classList.add('hidden');ui.pause.classList.add('hidden');ui.end.classList.add('hidden');ui.hud.hidden=false;ui.weaponStrip.hidden=false;$('desktopHint').style.display='';ui.bossbar.classList.remove('visible');if(frameId)cancelAnimationFrame(frameId);lastFrame=performance.now();frameId=requestAnimationFrame(loop);}if(typeof data.time==='number')game.time=data.time;if(typeof data.runTime==='number')game.runClock=data.runTime;else game.runClock=game.time;if(typeof data.duration==='number')game.duration=data.duration;if(typeof data.kills==='number')game.kills=data.kills;if(typeof data.bossStage==='number')game.bossStage=data.bossStage;game.finalBossDead=!!data.finalBossDead;const resumedInputSeq=Number(data.inputSeq);coop.clientInputSeq=Number.isFinite(resumedInputSeq)?Math.max(0,Math.floor(resumedInputSeq)):(coop.clientInputSeq||0);coop.clientLastAckSeq=coop.clientInputSeq;coop.clientInputHistory=[];updateUI();renderWeaponStrip();showToast('Conexão restaurada · fase e progresso preservados');}else if(data.type==='runEnded'){coop.partnerName=data.hostName||'Jogador 1';coop.partnerCharacter=data.hostCharacter||'nucleus';startGame({stage:normalizeStage(data.stage,1),name:data.guestName||coop.localName,character:data.guestCharacter||coop.localCharacter,networkStart:true});if(data.p2&&player)Object.assign(player,data.p2);game.time=Number(data.time)||0;game.runClock=Number(data.runTime)||game.time;game.kills=Number(data.kills)||0;endGame(!!data.won);}else if(data.type==='snapshot'){applyCoopSnapshot(data)}else if(data.type==='upgradeOffer'){openRemoteUpgradeOffer(data.ids)}else if(data.type==='upgradeUtilityResult'){if(player)player.coins=Math.max(0,Number(data.coins)||0);refreshCurrencyUI();if(data.action==='ban'){openRemoteUpgradeOffer(data.ids||[]);showToast('Habilidade banida desta partida.');}else if(data.action==='skip'){ui.upgrade.classList.add('hidden');ui.upgrade.classList.remove('coop-live');coop.remoteOfferActive=false;showToast('Opções puladas · moedas utilizadas');}}else if(data.type==='upgradeUtilityFailed'){if(player&&typeof data.coins==='number')player.coins=Math.max(0,data.coins);refreshCurrencyUI();if(ui.upgrade.classList.contains('hidden')===false&&Array.isArray(data.ids)&&data.ids.length)openRemoteUpgradeOffer(data.ids);showToast(data.reason||'Ação não realizada.');}else if(data.type==='upgradeApplied'){showToast((data.synergy?data.synergy+' · ':'')+'Evolução adquirida: '+(data.name||'habilidade'));if(player){updateUI();renderWeaponStrip()}}}}
-function cleanupCoop(){try{if(coop.conn)coop.conn.close()}catch(e){}try{if(coop.peer)coop.peer.destroy()}catch(e){}coop.peer=null;coop.conn=null;coop.connected=false;coop.enabled=false;coop.role=null;coop.netClient=false;coop.partner=null;coop.partnerUpgradeOffer=[];coop.remoteOfferActive=false;coop.remotePlayer=null;coop.remoteInput={x:0,y:0,dash:false,ultimate:false,dashSeq:0,ultimateSeq:0,seq:0,receivedAt:0};coop.pendingDash=false;coop.pendingUltimate=false;coop.snapshotPrev=null;coop.snapshotCurrent=null;coop.snapshotPrevAt=0;coop.snapshotCurrentAt=0;coop.snapshotQueue=[];coop.clientRenderX=null;coop.clientRenderY=null;coop.clientAuthX=null;coop.clientAuthY=null;coop.clientDashTime=0;coop.clientDashCooldown=0;coop.clientDashSeq=0;coop.clientUltimateSeq=0;localDashTrails=[];coop.clientInputHistory=[];coop.clientInputSeq=0;coop.clientLastAckSeq=0;coop.clientVisualOffsetX=0;coop.clientVisualOffsetY=0;coop.lastUiUpdate=0;game.coopActive=false;}
+function cleanupCoop(){if(coopConnectTimer){clearTimeout(coopConnectTimer);coopConnectTimer=null;}coopConnectAttemptSeq++;try{if(coop.conn)coop.conn.close()}catch(e){}try{if(coop.peer)coop.peer.destroy()}catch(e){}coop.peer=null;coop.conn=null;coop.connected=false;coop.enabled=false;coop.role=null;coop.netClient=false;coop.partner=null;coop.partnerUpgradeOffer=[];coop.remoteOfferActive=false;coop.remotePlayer=null;coop.remoteInput={x:0,y:0,dash:false,ultimate:false,dashSeq:0,ultimateSeq:0,seq:0,receivedAt:0};coop.pendingDash=false;coop.pendingUltimate=false;coop.snapshotPrev=null;coop.snapshotCurrent=null;coop.snapshotPrevAt=0;coop.snapshotCurrentAt=0;coop.snapshotQueue=[];coop.clientRenderX=null;coop.clientRenderY=null;coop.clientAuthX=null;coop.clientAuthY=null;coop.clientDashTime=0;coop.clientDashCooldown=0;coop.clientDashSeq=0;coop.clientUltimateSeq=0;localDashTrails=[];coop.clientInputHistory=[];coop.clientInputSeq=0;coop.clientLastAckSeq=0;coop.clientVisualOffsetX=0;coop.clientVisualOffsetY=0;coop.lastUiUpdate=0;game.coopActive=false;}
 function escapeHtml(value){return String(value==null?'':value).replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]))}
 function renderLobbyRoster(entries=null){
  const root=$('lobbyPlayers');if(!root)return;
@@ -1542,8 +1543,128 @@ function syncCoopLobbyProfile(){
  if(coop.conn&&coop.conn.open){try{coop.conn.send({type:'lobbySelection',name:coop.localName,character:coop.localCharacter})}catch(e){}}
 }
 function showMultiLobby(){ui.start.classList.add('hidden');ui.setup.classList.add('hidden');ui.multi.classList.remove('hidden');$('joinArea').classList.add('hidden');$('lobbyArea').classList.add('hidden');$('multiStatus').textContent='Escolha criar uma sala ou entrar com o código do outro jogador.';$('coopStartBtn').disabled=true;$('coopStageField').style.display='flex';}
-function createCoopRoom(){ensureAudio();if(typeof Peer==='undefined'){$('multiStatus').textContent='Não foi possível carregar o módulo de conexão. Verifique a internet e abra o HTML em um navegador atualizado.';$('lobbyArea').classList.remove('hidden');return}cleanupCoop();coop.enabled=true;coop.role='host';coop.localName=String($('coopName').value||'Portador 1').slice(0,18);coop.localCharacter=$('coopCharacter').value;coop.code='';$('lobbyArea').classList.remove('hidden');$('roomCodeValue').textContent='…';$('multiStatus').textContent='Criando sala P2P…';$('coopStageField').style.display='flex';$('coopStartBtn').disabled=true;$('coopStartBtn').textContent='AGUARDANDO JOGADOR 2';renderLobbyRoster();const alphabet='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';const code=Array.from({length:6},()=>alphabet[Math.floor(Math.random()*alphabet.length)]).join('');coop.code=code;try{coop.peer=new Peer('ecos-'+code.toLowerCase(),{debug:0});coop.peer.on('open',()=>{$('roomCodeValue').textContent=code;$('multiStatus').textContent='Sala criada. Escolha a fase abaixo e envie o código ao outro jogador. A partida começa quando ele entrar.';renderLobbyRoster()});coop.peer.on('connection',conn=>{const previous=coop.conn;coop.conn=conn;if(previous&&previous!==conn&&previous.open){try{previous.close()}catch(e){}}conn.on('open',()=>{});conn.on('data',data=>{if(coop.conn===conn)onCoopData(data)});conn.on('close',()=>{if(coop.conn!==conn)return;coop.connected=false;if(game.coopActive)showToast('Conexão do parceiro foi perdida');else {$('multiStatus').textContent='O outro jogador desconectou. Você pode recriar a sala.';coop.partnerName='Aguardando parceiro';coop.partnerCharacter='prism';renderLobbyRoster()}});conn.on('error',()=>{if(coop.conn!==conn)return;$('multiStatus').textContent='Falha no canal P2P. Tente criar outra sala.'})});coop.peer.on('error',err=>{$('multiStatus').textContent='Falha ao criar sala ('+(err&&err.type||'rede')+'). Tente outro código ou recarregue.';$('roomCodeValue').textContent='—';});}catch(err){$('multiStatus').textContent='Não foi possível iniciar a conexão P2P.'}}
-function joinCoopRoom(){ensureAudio();$('joinArea').classList.add('hidden');if(typeof Peer==='undefined'){$('multiStatus').textContent='Módulo P2P não carregou. Verifique a internet.';$('lobbyArea').classList.remove('hidden');return}const code=String($('joinCode').value||'').toUpperCase().replace(/[^A-Z0-9]/g,'');if(code.length!==6){$('multiStatus').textContent='Digite o código de 6 caracteres.';$('lobbyArea').classList.remove('hidden');return}cleanupCoop();coop.enabled=true;coop.role='client';coop.localName=String($('coopName').value||'Portador 2').slice(0,18);coop.localCharacter=$('coopCharacter').value;coop.code=code;$('lobbyArea').classList.remove('hidden');$('roomCodeValue').textContent=code;$('multiStatus').textContent='Conectando à sala…';$('coopStageField').style.display='none';$('coopStartBtn').disabled=true;$('coopStartBtn').textContent='AGUARDANDO JOGADOR 1';renderLobbyRoster([{name:'Jogador 1',character:'nucleus',role:'ANFITRIÃO',local:false},{name:coop.localName||'Jogador 2',character:coop.localCharacter||'prism',role:'VOCÊ · JOGADOR 2',local:true}]);try{coop.peer=new Peer(undefined,{debug:0});coop.peer.on('open',()=>{coop.conn=coop.peer.connect('ecos-'+code.toLowerCase(),{reliable:true});coop.conn.on('open',()=>{coop.connected=true;renderLobbyRoster([{name:'Jogador 1',character:'nucleus',role:'ANFITRIÃO',local:false},{name:coop.localName||'Jogador 2',character:coop.localCharacter||'prism',role:'VOCÊ · JOGADOR 2',local:true}]);coop.conn.send({type:'join',name:coop.localName,character:coop.localCharacter});$('multiStatus').textContent='Conectado. Aguardando jogador 1 escolher a fase.'});coop.conn.on('data',onCoopData);coop.conn.on('close',()=>{$('multiStatus').textContent='Conexão encerrada. Volte e entre novamente.';coop.connected=false});coop.conn.on('error',()=>{$('multiStatus').textContent='Não foi possível conectar. Confira o código e a internet.'})});coop.peer.on('error',err=>{$('multiStatus').textContent='Falha de conexão ('+(err&&err.type||'rede')+'). Confira o código e tente outra vez.'})}catch(err){$('multiStatus').textContent='Não foi possível iniciar a conexão.'}}
+// Mobile WebRTC fallback: keep the existing desktop path untouched, while mobile
+// browsers get explicit STUN + TURN UDP/TCP candidates and a relay-only retry.
+function createCoopPeer(id,relayOnly=false){
+ if(!MOBILE_OPTIMIZATIONS)return new Peer(id||undefined,{debug:0});
+ const iceServers=[
+  {urls:'stun:stun.l.google.com:19302'},
+  {urls:[
+   'turn:eu-0.turn.peerjs.com:3478',
+   'turn:eu-0.turn.peerjs.com:3478?transport=tcp',
+   'turn:us-0.turn.peerjs.com:3478',
+   'turn:us-0.turn.peerjs.com:3478?transport=tcp'
+  ],username:'peerjs',credential:'peerjsp'}
+ ];
+ return new Peer(id||undefined,{debug:1,config:{iceServers,iceTransportPolicy:relayOnly?'relay':'all',sdpSemantics:'unified-plan'}});
+}
+function coopErrorType(err){return String((err&&(err.type||err.name))||'network').toLowerCase();}
+function coopErrorMessage(err){
+ const type=coopErrorType(err);
+ if(type==='peer-unavailable')return 'Sala não encontrada ou anfitrião desconectado. Confira os 6 caracteres e confirme que o jogador 1 ainda está na sala.';
+ if(type==='browser-incompatible')return 'Este navegador não disponibilizou WebRTC. Tentem abrir o jogo em uma versão atualizada do Chrome ou Safari.';
+ if(type==='unavailable-id')return 'O identificador da sala já está em uso. O jogador 1 deve criar uma nova sala.';
+ if(type==='network'||type==='socket-error'||type==='socket-closed'||type==='server-error')return 'A ligação ao servidor de sinalização caiu. Verifiquem a internet e desativem temporariamente VPN ou bloqueadores de rede.';
+ if(type==='webrtc'||type==='negotiation-failed')return 'A negociação WebRTC falhou. Pode ser uma restrição de NAT/rede móvel; vou tentar uma rota de retransmissão.';
+ return 'Falha de conexão ('+type+'). Confiram a rede e mantenham a sala do jogador 1 aberta.';
+}
+function presentJoinRetry(message){
+ $('multiStatus').textContent=message;
+ $('joinArea').classList.remove('hidden');
+ $('lobbyArea').classList.remove('hidden');
+}
+function createCoopRoom(){
+ ensureAudio();
+ if(typeof Peer==='undefined'){$('multiStatus').textContent='Não foi possível carregar o módulo de conexão. Verifique a internet e abra o HTML em um navegador atualizado.';$('lobbyArea').classList.remove('hidden');return}
+ cleanupCoop();coop.enabled=true;coop.role='host';coop.localName=String($('coopName').value||'Portador 1').slice(0,18);coop.localCharacter=$('coopCharacter').value;coop.code='';$('lobbyArea').classList.remove('hidden');$('roomCodeValue').textContent='…';$('multiStatus').textContent='Criando sala P2P…';$('coopStageField').style.display='flex';$('coopStartBtn').disabled=true;$('coopStartBtn').textContent='AGUARDANDO JOGADOR 2';renderLobbyRoster();
+ const alphabet='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';const code=Array.from({length:6},()=>alphabet[Math.floor(Math.random()*alphabet.length)]).join('');coop.code=code;
+ try{
+  coop.peer=createCoopPeer('ecos-'+code.toLowerCase(),false);
+  const hostPeer=coop.peer;
+  hostPeer.on('open',()=>{if(coop.peer!==hostPeer)return;$('roomCodeValue').textContent=code;$('multiStatus').textContent='Sala criada. Deixe esta tela aberta e envie o código ao outro jogador.';renderLobbyRoster()});
+  hostPeer.on('connection',conn=>{
+   if(coop.peer!==hostPeer){try{conn.close()}catch(e){}return}
+   const previous=coop.conn;coop.conn=conn;if(previous&&previous!==conn){try{previous.close()}catch(e){}}
+   conn.on('open',()=>{if(coop.conn===conn)$('multiStatus').textContent='Canal estabelecido; aguardando confirmação do segundo jogador…'});
+   conn.on('data',data=>{if(coop.conn===conn)onCoopData(data)});
+   conn.on('close',()=>{if(coop.conn!==conn)return;coop.connected=false;if(game.coopActive)showToast('Conexão do parceiro foi perdida');else{$('multiStatus').textContent='O outro jogador desconectou. Você pode recriar a sala.';coop.partnerName='Aguardando parceiro';coop.partnerCharacter='prism';renderLobbyRoster()}});
+   conn.on('error',err=>{if(coop.conn!==conn)return;$('multiStatus').textContent='Canal de dados: '+coopErrorMessage(err)});
+  });
+  hostPeer.on('error',err=>{if(coop.peer!==hostPeer)return;$('multiStatus').textContent='Falha ao criar sala. '+coopErrorMessage(err);$('roomCodeValue').textContent='—'});
+ }catch(err){$('multiStatus').textContent='Não foi possível iniciar a conexão P2P. '+coopErrorMessage(err)}
+}
+function startClientConnectionAttempt(code,relayOnly=false){
+ if(coopConnectTimer){clearTimeout(coopConnectTimer);coopConnectTimer=null;}
+ const attempt=++coopConnectAttemptSeq;
+ try{if(coop.conn)coop.conn.close()}catch(e){}
+ try{if(coop.peer)coop.peer.destroy()}catch(e){}
+ coop.conn=null;coop.peer=null;coop.connected=false;
+ let lastError='';
+ $('multiStatus').textContent=relayOnly?'Tentando uma rota móvel alternativa…':'Servidor alcançado? Negociando conexão com a sala…';
+ const timeoutMs=relayOnly?18000:11000;
+ coopConnectTimer=setTimeout(()=>{
+  if(attempt!==coopConnectAttemptSeq||coop.connected)return;
+  coopConnectTimer=null;
+  if(!relayOnly){$('multiStatus').textContent='A conexão direta demorou. Tentando uma rota de retransmissão…';startClientConnectionAttempt(code,true);return;}
+  presentJoinRetry('Não foi possível estabelecer a conexão entre os celulares. '+(lastError||'A tentativa direta e a retransmissão expiraram.')+' Confirme que o jogador 1 deixou a sala aberta. Toque em CONECTAR para tentar novamente; se persistir, testem os dois na mesma Wi‑Fi e desliguem VPN/bloqueadores.');
+ },timeoutMs);
+ try{
+  const peer=createCoopPeer(undefined,relayOnly);coop.peer=peer;
+  peer.on('open',()=>{
+   if(attempt!==coopConnectAttemptSeq||coop.peer!==peer)return;
+   $('multiStatus').textContent=relayOnly?'Retransmissão ativa; concluindo a conexão…':'Sinalização pronta; negociando rota entre os aparelhos…';
+   let conn;
+   try{conn=peer.connect('ecos-'+code.toLowerCase(),{reliable:true,serialization:'json'});}
+   catch(err){lastError=coopErrorMessage(err);if(!relayOnly){if(coopConnectTimer)clearTimeout(coopConnectTimer);coopConnectTimer=setTimeout(()=>{if(attempt===coopConnectAttemptSeq&&!coop.connected)startClientConnectionAttempt(code,true)},500)}else presentJoinRetry(lastError);return}
+   if(!conn){lastError='O navegador não conseguiu criar o canal de dados.';return}
+   coop.conn=conn;
+   conn.on('open',()=>{
+    if(attempt!==coopConnectAttemptSeq||coop.conn!==conn)return;
+    if(coopConnectTimer){clearTimeout(coopConnectTimer);coopConnectTimer=null;}
+    coop.connected=true;
+    renderLobbyRoster([{name:'Jogador 1',character:'nucleus',role:'ANFITRIÃO',local:false},{name:coop.localName||'Jogador 2',character:coop.localCharacter||'prism',role:'VOCÊ · JOGADOR 2',local:true}]);
+    try{conn.send({type:'join',name:coop.localName,character:coop.localCharacter})}catch(err){lastError=coopErrorMessage(err);presentJoinRetry(lastError);return}
+    $('multiStatus').textContent='Conectado. Aguardando jogador 1 escolher a fase.';
+   });
+   conn.on('data',data=>{if(attempt===coopConnectAttemptSeq&&coop.conn===conn)onCoopData(data)});
+   conn.on('error',err=>{
+    if(attempt!==coopConnectAttemptSeq||coop.conn!==conn)return;
+    lastError=coopErrorMessage(err);
+    if(!relayOnly){$('multiStatus').textContent='A rota direta falhou. Tentando retransmissão…';if(coopConnectTimer)clearTimeout(coopConnectTimer);coopConnectTimer=setTimeout(()=>{if(attempt===coopConnectAttemptSeq&&!coop.connected)startClientConnectionAttempt(code,true)},650)}
+    else presentJoinRetry('A conexão móvel falhou mesmo pela retransmissão. '+lastError);
+   });
+   conn.on('close',()=>{
+    if(attempt!==coopConnectAttemptSeq||coop.conn!==conn)return;
+    coop.connected=false;
+    if(!relayOnly&&!game.coopActive){lastError='O canal P2P foi encerrado antes da conclusão.';$('multiStatus').textContent=lastError+' Tentando uma rota alternativa…';if(coopConnectTimer)clearTimeout(coopConnectTimer);coopConnectTimer=setTimeout(()=>{if(attempt===coopConnectAttemptSeq&&!coop.connected)startClientConnectionAttempt(code,true)},500)}
+    else if(!game.coopActive)presentJoinRetry('Conexão encerrada. '+(lastError||'O outro aparelho fechou o canal.')+' Tente novamente.');
+    else showToast('Conexão encerrada. Verifique a rede do parceiro.');
+   });
+  });
+  peer.on('error',err=>{
+   if(attempt!==coopConnectAttemptSeq||coop.peer!==peer)return;
+   lastError=coopErrorMessage(err);
+   const type=coopErrorType(err);
+   if(type==='peer-unavailable'||type==='invalid-id'||type==='invalid-key'){
+    if(coopConnectTimer){clearTimeout(coopConnectTimer);coopConnectTimer=null;}
+    coopConnectAttemptSeq++;
+    presentJoinRetry(lastError);return;
+   }
+   if(!relayOnly){$('multiStatus').textContent=lastError+' Tentando uma rota alternativa…';if(coopConnectTimer)clearTimeout(coopConnectTimer);coopConnectTimer=setTimeout(()=>{if(attempt===coopConnectAttemptSeq&&!coop.connected)startClientConnectionAttempt(code,true)},650)}
+   else $('multiStatus').textContent='Falha na rota alternativa. '+lastError;
+  });
+ }catch(err){lastError=coopErrorMessage(err);if(relayOnly)presentJoinRetry(lastError);else{if(coopConnectTimer)clearTimeout(coopConnectTimer);coopConnectTimer=setTimeout(()=>{if(attempt===coopConnectAttemptSeq&&!coop.connected)startClientConnectionAttempt(code,true)},650)}}
+}
+function joinCoopRoom(){
+ ensureAudio();$('joinArea').classList.add('hidden');
+ if(typeof Peer==='undefined'){$('multiStatus').textContent='Módulo P2P não carregou. Verifique a internet.';$('lobbyArea').classList.remove('hidden');$('joinArea').classList.remove('hidden');return}
+ const code=String($('joinCode').value||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+ if(code.length!==6){$('multiStatus').textContent='Digite o código de 6 caracteres.';$('lobbyArea').classList.remove('hidden');$('joinArea').classList.remove('hidden');return}
+ cleanupCoop();coop.enabled=true;coop.role='client';coop.localName=String($('coopName').value||'Portador 2').slice(0,18);coop.localCharacter=$('coopCharacter').value;coop.code=code;
+ $('lobbyArea').classList.remove('hidden');$('roomCodeValue').textContent=code;$('multiStatus').textContent='Iniciando conexão…';$('coopStageField').style.display='none';$('coopStartBtn').disabled=true;$('coopStartBtn').textContent='AGUARDANDO JOGADOR 1';
+ renderLobbyRoster([{name:'Jogador 1',character:'nucleus',role:'ANFITRIÃO',local:false},{name:coop.localName||'Jogador 2',character:coop.localCharacter||'prism',role:'VOCÊ · JOGADOR 2',local:true}]);
+ startClientConnectionAttempt(code,false);
+}
 function drawLegacyCosmicEnemy(e){
  const r=e.r,t=game.time+e.phase,c=e.hitFlash>0?'#fffaff':e.color;
  ctx.shadowColor=e.color;ctx.shadowBlur=game.reduceFx?2:13;
